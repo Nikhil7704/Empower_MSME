@@ -4,6 +4,7 @@ import { motion } from "framer-motion"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import BusinessSidebar from "@/components/business-sidebar"
+import { useEffect, useState } from "react"
 import { useAuth } from "@/lib/auth-context"
 
 import { MetricCard } from "@/components/ui/metric-card"
@@ -13,12 +14,9 @@ import { Button } from "@/components/ui/button"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Eye, Heart, TrendingUp, DollarSign, Users, ArrowUpRight, FileText, Repeat2, Wand2, BookOpen, CreditCard } from "lucide-react"
 
-const revenueData = [
-  { month: "Oct", revenue: 850 }, { month: "Nov", revenue: 920 },
-  { month: "Dec", revenue: 1100 }, { month: "Jan", revenue: 750 },
-  { month: "Feb", revenue: 880 }, { month: "Mar", revenue: 950 },
-]
+// Hardcoded mock data removed
 
+// Quick actions retained
 const quickActions = [
   { label: "Apply for Loan", href: "/business/loans", icon: FileText, color: "text-blue-500", bg: "bg-blue-500/10" },
   { label: "View Repayments", href: "/business/repayments", icon: Repeat2, color: "text-emerald-500", bg: "bg-emerald-500/10" },
@@ -28,13 +26,27 @@ const quickActions = [
   { label: "RBF Calculator", href: "/business/rbf", icon: CreditCard, color: "text-pink-500", bg: "bg-pink-500/10" },
 ]
 
-const proposals = [
-  { name: "Sunrise Capital", amount: "₹10L", type: "Revenue-Based", badge: "New" },
-  { name: "Growth Fund India", amount: "₹25L", type: "Fixed EMI 24mo", badge: "New" },
-  { name: "Angel Collective", amount: "₹5L", type: "Revenue-Based", badge: "Viewed" },
-]
-
 export default function DashboardClient() {
+  const { user } = useAuth()
+  const [data, setData] = useState({
+    totalRaised: 0,
+    campaignsCount: 0,
+    profileViews: 1234,
+    creditScore: 742,
+    revenueData: [],
+    proposals: []
+  })
+
+  useEffect(() => {
+    if (user?.id) {
+      fetch(`/api/analytics/business?userId=${user.id}`)
+        .then(res => res.json())
+        .then(res => {
+          if (res.success) setData(res.data)
+        })
+    }
+  }, [user])
+
   return (
     <div className="flex h-screen bg-background">
       <BusinessSidebar />
@@ -53,10 +65,10 @@ export default function DashboardClient() {
           <div className="p-8 space-y-8">
             {/* KPI Cards */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-              <MetricCard title="Profile Views" value={1234} change={12} description="Unique visitor views" icon={Eye} iconColor="text-primary" iconBg="bg-primary/10" delay={0} />
-              <MetricCard title="Investor Interest" value={45} change={28} description="8 pending proposals" icon={Heart} iconColor="text-red-500" iconBg="bg-red-500/10" delay={0.08} />
-              <MetricCard title="Credit Score" value={742} change={8} description="Good standing" icon={TrendingUp} iconColor="text-emerald-500" iconBg="bg-emerald-500/10" delay={0.16} />
-              <MetricCard title="Funding Raised" value={2500000} prefix="₹" change={35} description="of ₹50L goal" icon={DollarSign} iconColor="text-amber-500" iconBg="bg-amber-500/10" delay={0.24} />
+              <MetricCard title="Profile Views" value={data.profileViews} change={12} description="Unique visitor views" icon={Eye} iconColor="text-primary" iconBg="bg-primary/10" delay={0} />
+              <MetricCard title="Campaigns" value={data.campaignsCount} description="Active & funded" icon={Heart} iconColor="text-red-500" iconBg="bg-red-500/10" delay={0.08} />
+              <MetricCard title="Credit Score" value={data.creditScore} change={8} description="Good standing" icon={TrendingUp} iconColor="text-emerald-500" iconBg="bg-emerald-500/10" delay={0.16} />
+              <MetricCard title="Funding Raised" value={data.totalRaised} prefix="₹" description="Total secured" icon={DollarSign} iconColor="text-amber-500" iconBg="bg-amber-500/10" delay={0.24} />
             </div>
 
             {/* Revenue Chart */}
@@ -73,7 +85,7 @@ export default function DashboardClient() {
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={180}>
-                    <AreaChart data={revenueData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <AreaChart data={data.revenueData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                       <defs>
                         <linearGradient id="businessRevGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.3} />
@@ -121,7 +133,9 @@ export default function DashboardClient() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {proposals.map((p, i) => (
+                      {data.proposals.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">No proposals yet</p>
+                      ) : data.proposals.map((p, i) => (
                         <motion.div key={i} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.55 + i * 0.07 }}
                           className="flex items-center justify-between p-3 border border-border rounded-xl hover:bg-muted/20 transition-colors">
                           <div className="flex items-center gap-3">

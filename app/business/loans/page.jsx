@@ -1,12 +1,15 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import BusinessSidebar from "@/components/business-sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
+import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import {
   FileText, Upload, CheckCircle2, Clock, Search, Banknote, XCircle,
   AlertTriangle, ChevronRight, Plus, Eye, ArrowRight
@@ -73,12 +76,31 @@ function LoanTimeline({ currentStage }) {
 
 function DocumentDropzone({ docs }) {
   const [dragging, setDragging] = useState(false)
+  const [uploadedFiles, setUploadedFiles] = useState([])
+  const inputRef = useRef(null)
+
+  const handleFiles = (files) => {
+    const names = Array.from(files).map(f => f.name)
+    setUploadedFiles(prev => [...prev, ...names])
+  }
+
+  const allDocs = [...(docs || []), ...uploadedFiles]
+
   return (
     <div>
+      <input
+        ref={inputRef}
+        type="file"
+        multiple
+        accept=".pdf,.jpg,.jpeg,.png"
+        className="hidden"
+        onChange={(e) => handleFiles(e.target.files)}
+      />
       <div
+        onClick={() => inputRef.current?.click()}
         onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setDragging(false) }}
+        onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files) }}
         className={`border-2 border-dashed rounded-xl p-6 text-center transition-all cursor-pointer ${
           dragging ? "border-primary bg-primary/5" : "border-border hover:border-primary/50 hover:bg-muted/30"
         }`}
@@ -87,9 +109,9 @@ function DocumentDropzone({ docs }) {
         <p className="text-sm font-medium text-foreground">Drop files here or click to upload</p>
         <p className="text-xs text-muted-foreground mt-1">PDF, JPG, PNG — max 10MB per file</p>
       </div>
-      {docs && docs.length > 0 && (
+      {allDocs.length > 0 && (
         <div className="mt-4 space-y-2">
-          {docs.map((doc, i) => (
+          {allDocs.map((doc, i) => (
             <motion.div key={i} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: i * 0.05 }}
               className="flex items-center justify-between p-3 border border-border rounded-lg bg-muted/20">
               <div className="flex items-center gap-2">
@@ -105,8 +127,69 @@ function DocumentDropzone({ docs }) {
   )
 }
 
+function NewLoanForm({ onClose, onCreated }) {
+  const [form, setForm] = useState({ amount: "", purpose: "Working Capital", tenure: "12", interestRate: "10.5", bankName: "SBI", accountNum: "", ifsc: "" })
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+  const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  const handleSubmit = async () => {
+    if (!form.amount || !form.accountNum) { setError("Please fill all required fields."); return }
+    setLoading(true); setError("")
+    try {
+      const res = await fetch("/api/loans", {
+        method: "POST",
+        body: JSON.stringify(form),
+        headers: { "Content-Type": "application/json" }
+      })
+      const data = await res.json()
+      if (data.success) {
+        onCreated(data.data)
+        onClose()
+      } else {
+        setError(data.error || "Failed to create loan")
+      }
+    } catch (e) {
+      setError("Network error, please try again.")
+    }
+    setLoading(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      {error && <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2 col-span-2"><Label>Loan Amount (₹) *</Label><Input type="number" placeholder="e.g. 500000" value={form.amount} onChange={e => set("amount", e.target.value)} /></div>
+        <div className="space-y-2"><Label>Purpose</Label><Input placeholder="Working Capital" value={form.purpose} onChange={e => set("purpose", e.target.value)} /></div>
+        <div className="space-y-2"><Label>Tenure (months)</Label><Input type="number" placeholder="12" value={form.tenure} onChange={e => set("tenure", e.target.value)} /></div>
+        <div className="space-y-2"><Label>Interest Rate (%)</Label><Input type="number" step="0.1" placeholder="10.5" value={form.interestRate} onChange={e => set("interestRate", e.target.value)} /></div>
+        <div className="space-y-2"><Label>Bank Name</Label><Input placeholder="SBI" value={form.bankName} onChange={e => set("bankName", e.target.value)} /></div>
+        <div className="space-y-2"><Label>Account Number *</Label><Input placeholder="1234567890" value={form.accountNum} onChange={e => set("accountNum", e.target.value)} /></div>
+        <div className="space-y-2"><Label>IFSC Code</Label><Input placeholder="SBIN0000001" value={form.ifsc} onChange={e => set("ifsc", e.target.value)} /></div>
+      </div>
+      <div className="flex gap-3 pt-2">
+        <Button variant="outline" className="flex-1 bg-transparent" onClick={onClose}>Cancel</Button>
+        <Button className="flex-1" onClick={handleSubmit} disabled={loading}>{loading ? "Submitting..." : "Submit Application"}</Button>
+      </div>
+    </div>
+  )
+}
+
 export default function LoansPage() {
   const [selected, setSelected] = useState(loans[0])
+  const [allLoans, setAllLoans] = useState(loans)
+  const [showCreate, setShowCreate] = useState(false)
+
+  const handleCreated = (newLoan) => {
+    const mapped = {
+      ...newLoan,
+      stage: 0,
+      riskLevel: newLoan.riskLevel || "Low",
+      documents: newLoan.documents || []
+    }
+    setAllLoans(prev => [mapped, ...prev])
+    setSelected(mapped)
+  }
 
   return (
     <div className="flex h-screen bg-background">
@@ -119,9 +202,15 @@ export default function LoansPage() {
                 <h1 className="text-3xl font-bold text-foreground">Loan Applications</h1>
                 <p className="text-muted-foreground mt-1">Track your loan lifecycle from submission to disbursement</p>
               </div>
-              <Button className="gap-2">
-                <Plus className="h-4 w-4" /> New Application
-              </Button>
+              <Dialog open={showCreate} onOpenChange={setShowCreate}>
+                <DialogTrigger asChild>
+                  <Button className="gap-2"><Plus className="h-4 w-4" /> New Application</Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-lg">
+                  <DialogHeader><DialogTitle>New Loan Application</DialogTitle></DialogHeader>
+                  <NewLoanForm onClose={() => setShowCreate(false)} onCreated={handleCreated} />
+                </DialogContent>
+              </Dialog>
             </div>
           </div>
 
@@ -129,7 +218,7 @@ export default function LoansPage() {
             {/* Loan List */}
             <div className="space-y-4">
               <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Your Applications</h2>
-              {loans.map((loan, i) => (
+              {allLoans.map((loan, i) => (
                 <motion.div key={loan.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
                   onClick={() => setSelected(loan)}
                   className={`p-4 border rounded-xl cursor-pointer transition-all ${
@@ -154,7 +243,7 @@ export default function LoansPage() {
 
             {/* Loan Detail */}
             <div className="lg:col-span-2 space-y-6">
-              {selected && (
+              {selected && allLoans.find(l => l.id === selected.id) && (
                 <AnimatePresence mode="wait">
                   <motion.div key={selected.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} className="space-y-6">
                     {/* Timeline */}

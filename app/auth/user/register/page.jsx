@@ -7,7 +7,9 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { authService, ROLES } from "@/lib/auth"
+import { signIn } from "next-auth/react"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { AlertCircle } from "lucide-react"
 
 export default function UserRegisterPage() {
   const router = useRouter()
@@ -17,10 +19,44 @@ export default function UserRegisterPage() {
     password: "",
   })
 
-  const handleRegister = (e) => {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  const handleRegister = async (e) => {
     e.preventDefault()
-    authService.register(formData, ROLES.USER)
-    router.push("/user/dashboard")
+    setLoading(true)
+    setError("")
+
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...formData, role: "USER" }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Registration failed")
+      }
+
+      // Automatically sign in the user
+      const signInRes = await signIn("credentials", {
+        email: formData.email,
+        password: formData.password,
+        redirect: false,
+      })
+
+      if (signInRes?.error) {
+        throw new Error(signInRes.error)
+      }
+
+      router.push("/user/dashboard")
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -37,6 +73,13 @@ export default function UserRegisterPage() {
           <CardDescription>Join as an investor, learner, or mentor</CardDescription>
         </CardHeader>
         <CardContent>
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-sm">{error}</AlertDescription>
+            </Alert>
+          )}
+
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
@@ -70,8 +113,8 @@ export default function UserRegisterPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full">
-              Create Account
+            <Button type="submit" className="w-full" disabled={loading}>
+              {loading ? "Creating Account..." : "Create Account"}
             </Button>
           </form>
           <div className="mt-4 text-center text-sm">

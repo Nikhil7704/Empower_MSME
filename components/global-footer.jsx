@@ -5,8 +5,8 @@ import { Mail, Linkedin, Twitter, Facebook } from "lucide-react"
 
 export default function GlobalFooter() {
   return (
-    <footer className="border-t border-border bg-card/50 backdrop-blur-sm">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-12">
+    <footer className="border-t border-border bg-card/50 backdrop-blur-sm shrink-0">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6">
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-4">
           {/* Column 1: Platform */}
           <div>
@@ -113,7 +113,7 @@ export default function GlobalFooter() {
         </div>
 
         {/* Bottom Bar */}
-        <div className="mt-12 pt-8 border-t border-border">
+        <div className="mt-6 pt-4 border-t border-border">
           <p className="text-center text-sm text-muted-foreground">
             © {new Date().getFullYear()} EmpowerMSME – All Rights Reserved
           </p>

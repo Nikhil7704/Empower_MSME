@@ -2,6 +2,8 @@
 
 import { motion } from "framer-motion"
 import Link from "next/link"
+import { useEffect, useState } from "react"
+import { useAuth } from "@/lib/auth-context"
 import UserSidebar from "@/components/user-sidebar"
 import GlobalFooter from "@/components/global-footer"
 import { MetricCard } from "@/components/ui/metric-card"
@@ -11,29 +13,30 @@ import { Button } from "@/components/ui/button"
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts"
 import { Building2, TrendingUp, DollarSign, BarChart3, ArrowRight, Bell, Star } from "lucide-react"
 
-const portfolioData = [
-  { month: "Oct", value: 250000 }, { month: "Nov", value: 288000 },
-  { month: "Dec", value: 340000 }, { month: "Jan", value: 370000 },
-  { month: "Feb", value: 410000 }, { month: "Mar", value: 455000 },
-]
-
-const investments = [
-  { name: "GreenLeaf Organics", sector: "Agriculture", invested: 50000, currentValue: 54500, roi: 9, status: "active" },
-  { name: "TechWeave Solutions", sector: "Technology", invested: 100000, currentValue: 112000, roi: 12, status: "active" },
-  { name: "Artisan Textiles Co.", sector: "Manufacturing", invested: 75000, currentValue: 85500, roi: 14, status: "completed" },
-  { name: "CoolChain Logistics", sector: "Logistics", invested: 150000, currentValue: 163500, roi: 9, status: "active" },
-]
-
-const notifications = [
-  { title: "Investment proposal approved", desc: "GreenLeaf Organics — ₹50,000 invested", badge: "New", color: "bg-emerald-500/10 text-emerald-600" },
-  { title: "Campaign funding milestone hit", desc: "TechWeave Solutions reached 50% funding goal", badge: "Update", color: "bg-blue-500/10 text-blue-600" },
-  { title: "Monthly ROI credited", desc: "₹4,500 return credited from Artisan Textiles", badge: "ROI", color: "bg-violet-500/10 text-violet-600" },
-]
-
 export default function UserDashboardClient() {
-  const totalInvested = investments.reduce((s, i) => s + i.invested, 0)
-  const totalCurrentValue = investments.reduce((s, i) => s + i.currentValue, 0)
-  const totalROI = ((totalCurrentValue - totalInvested) / totalInvested * 100).toFixed(1)
+  const { user } = useAuth()
+  const [data, setData] = useState({
+    totalInvested: 0,
+    totalCurrentValue: 0,
+    activeCount: 0,
+    portfolioData: [],
+    investments: [],
+    notifications: []
+  })
+
+  useEffect(() => {
+    if (user?.id) {
+      fetch(`/api/analytics/user?userId=${user.id}`)
+        .then(res => res.json())
+        .then(res => {
+          if (res.success) setData(res.data)
+        })
+    }
+  }, [user])
+
+  const totalROI = data.totalInvested > 0 
+    ? ((data.totalCurrentValue - data.totalInvested) / data.totalInvested * 100).toFixed(1)
+    : "0.0"
 
   return (
     <div className="flex h-screen bg-background">
@@ -48,10 +51,10 @@ export default function UserDashboardClient() {
           <div className="p-8 space-y-8">
             {/* KPI Cards */}
             <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-              <MetricCard title="Total Invested" value={totalInvested} prefix="₹" change={35} description="Across 4 campaigns" icon={DollarSign} iconColor="text-primary" iconBg="bg-primary/10" delay={0} />
-              <MetricCard title="Portfolio Value" value={totalCurrentValue} prefix="₹" change={Number(totalROI)} description="Current market value" icon={TrendingUp} iconColor="text-emerald-500" iconBg="bg-emerald-500/10" delay={0.08} />
-              <MetricCard title="Avg ROI" value={Number(totalROI)} suffix="%" change={1.2} description="Across all investments" icon={BarChart3} iconColor="text-violet-500" iconBg="bg-violet-500/10" delay={0.16} decimals={1} />
-              <MetricCard title="Active Investments" value={investments.filter(i => i.status === "active").length} description="1 completed this year" icon={Building2} iconColor="text-amber-500" iconBg="bg-amber-500/10" delay={0.24} />
+              <MetricCard title="Total Invested" value={data.totalInvested} prefix="₹" description={`Across ${data.investments.length} campaigns`} icon={DollarSign} iconColor="text-primary" iconBg="bg-primary/10" delay={0} />
+              <MetricCard title="Portfolio Value" value={data.totalCurrentValue} prefix="₹" change={Number(totalROI)} description="Current market value" icon={TrendingUp} iconColor="text-emerald-500" iconBg="bg-emerald-500/10" delay={0.08} />
+              <MetricCard title="Avg ROI" value={Number(totalROI)} suffix="%" description="Across all investments" icon={BarChart3} iconColor="text-violet-500" iconBg="bg-violet-500/10" delay={0.16} decimals={1} />
+              <MetricCard title="Active Investments" value={data.activeCount} description="Currently active" icon={Building2} iconColor="text-amber-500" iconBg="bg-amber-500/10" delay={0.24} />
             </div>
 
             {/* Portfolio Chart */}
@@ -68,7 +71,7 @@ export default function UserDashboardClient() {
                 </CardHeader>
                 <CardContent>
                   <ResponsiveContainer width="100%" height={200}>
-                    <AreaChart data={portfolioData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <AreaChart data={data.portfolioData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
                       <defs>
                         <linearGradient id="portfolioGrad" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
@@ -101,7 +104,9 @@ export default function UserDashboardClient() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {investments.map((inv, i) => (
+                      {data.investments.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">No investments yet</p>
+                      ) : data.investments.map((inv, i) => (
                         <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45 + i * 0.07 }}
                           className="flex items-center justify-between p-3 border border-border rounded-xl hover:bg-muted/20 transition-colors">
                           <div className="flex items-center gap-3">
@@ -133,7 +138,9 @@ export default function UserDashboardClient() {
                   </CardHeader>
                   <CardContent>
                     <div className="space-y-3">
-                      {notifications.map((n, i) => (
+                      {data.notifications.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-4">No new notifications</p>
+                      ) : data.notifications.map((n, i) => (
                         <motion.div key={i} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5 + i * 0.08 }}
                           className="flex items-start gap-3 p-3 border border-border rounded-xl hover:bg-muted/20 transition-colors">
                           <Badge variant="secondary" className={`text-xs flex-shrink-0 ${n.color}`}>{n.badge}</Badge>

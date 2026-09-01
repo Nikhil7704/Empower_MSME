@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { authService, ROLES } from "@/lib/auth"
+import { signIn } from "next-auth/react"
 import { AlertCircle } from "lucide-react"
 
 export default function BusinessRegisterPage() {
@@ -20,10 +20,44 @@ export default function BusinessRegisterPage() {
     password: "",
   })
 
-  const handleRegister = (e) => {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
+
+  const handleRegister = async (e) => {
     e.preventDefault()
-    authService.register(formData, ROLES.BUSINESS)
-    router.push("/business/pending")
+    setLoading(true)
+    setError("")
+
+    try {
+      const res = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...formData, role: "BUSINESS" }),
+      })
+
+      const data = await res.json()
+
+      if (!res.ok) {
+        throw new Error(data.error || "Registration failed")
+      }
+
+      // Automatically sign in the user
+      const signInRes = await signIn("credentials", {
+        email: formData.email,
+        password: formData.password,
+        redirect: false,
+      })
+
+      if (signInRes?.error) {
+        throw new Error(signInRes.error)
+      }
+
+      router.push("/business/pending")
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
   return (
@@ -46,6 +80,13 @@ export default function BusinessRegisterPage() {
               Your account will require admin approval before you can access all features
             </AlertDescription>
           </Alert>
+
+          {error && (
+            <Alert variant="destructive" className="mb-4">
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription className="text-sm">{error}</AlertDescription>
+            </Alert>
+          )}
 
           <form onSubmit={handleRegister} className="space-y-4">
             <div className="space-y-2">
@@ -90,8 +131,8 @@ export default function BusinessRegisterPage() {
                 required
               />
             </div>
-            <Button type="submit" className="w-full bg-accent hover:bg-accent/90">
-              Register Business
+            <Button type="submit" className="w-full bg-accent hover:bg-accent/90" disabled={loading}>
+              {loading ? "Registering..." : "Register Business"}
             </Button>
           </form>
           <div className="mt-4 text-center text-sm">

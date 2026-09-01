@@ -1,44 +1,165 @@
-// EmpowerMSME — Repayments Microservice
-
-const repayments = [
-  { id: "r1", loanId: "l1", businessId: "b1", totalAmount: 1500000, totalRepayable: 1661000, amountPaid: 692000, remainingBalance: 969000, nextDueDate: "2026-04-25", nextEmiAmount: 69200, isOverdue: false, overdueAmount: 0, tenure: 24, paidMonths: 10, payments: [
-    { month: "Jun 2025", amount: 69200, status: "paid", date: "2025-06-25", principal: 56500, interest: 12700 },
-    { month: "Jul 2025", amount: 69200, status: "paid", date: "2025-07-25", principal: 57000, interest: 12200 },
-    { month: "Aug 2025", amount: 69200, status: "paid", date: "2025-08-22", principal: 57500, interest: 11700 },
-    { month: "Sep 2025", amount: 69200, status: "paid", date: "2025-09-25", principal: 58000, interest: 11200 },
-    { month: "Oct 2025", amount: 69200, status: "paid", date: "2025-10-25", principal: 58600, interest: 10600 },
-    { month: "Nov 2025", amount: 69200, status: "paid", date: "2025-11-24", principal: 59200, interest: 10000 },
-    { month: "Dec 2025", amount: 69200, status: "paid", date: "2025-12-25", principal: 59800, interest: 9400 },
-    { month: "Jan 2026", amount: 69200, status: "paid", date: "2026-01-25", principal: 60400, interest: 8800 },
-    { month: "Feb 2026", amount: 69200, status: "paid", date: "2026-02-25", principal: 61000, interest: 8200 },
-    { month: "Mar 2026", amount: 69200, status: "paid", date: "2026-03-22", principal: 61600, interest: 7600 },
-    { month: "Apr 2026", amount: 69200, status: "upcoming", date: "2026-04-25", principal: 62200, interest: 7000 },
-    { month: "May 2026", amount: 69200, status: "upcoming", date: "2026-05-25", principal: 62800, interest: 6400 },
-  ]},
-]
-
-const rbfRepayments = [
-  { id: "rbf1", businessId: "b1", totalFunding: 1000000, capRate: 1.3, totalRepayable: 1300000, revenueSharePct: 8, amountPaid: 480000, remaining: 820000, monthlyData: [
-    { month: "Oct 2025", revenue: 850000, payment: 68000, status: "paid" },
-    { month: "Nov 2025", revenue: 920000, payment: 73600, status: "paid" },
-    { month: "Dec 2025", revenue: 1100000, payment: 88000, status: "paid" },
-    { month: "Jan 2026", revenue: 750000, payment: 60000, status: "paid" },
-    { month: "Feb 2026", revenue: 880000, payment: 70400, status: "paid" },
-    { month: "Mar 2026", revenue: 950000, payment: 76000, status: "paid" },
-    { month: "Apr 2026", revenue: null, payment: null, status: "upcoming" },
-  ]}
-]
+// EmpowerMSME — Repayments Database Services
+import prisma from "@/lib/prisma"
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
   const businessId = searchParams.get("businessId")
   const type = searchParams.get("type") // "emi" | "rbf"
 
-  if (type === "rbf") {
-    const filtered = businessId ? rbfRepayments.filter((r) => r.businessId === businessId) : rbfRepayments
-    return Response.json({ success: true, data: filtered })
-  }
+  try {
+    // Check or create mock business profile for sandbox backwards-compatibility
+    let business = null
+    if (businessId) {
+      business = await prisma.businessProfile.findUnique({
+        where: { id: businessId }
+      })
+    }
 
-  const filtered = businessId ? repayments.filter((r) => r.businessId === businessId) : repayments
-  return Response.json({ success: true, data: filtered })
+    if (!business) {
+      business = await prisma.businessProfile.findFirst()
+      if (!business) {
+        let user = await prisma.user.findFirst({ where: { role: "BUSINESS" } })
+        if (!user) {
+          user = await prisma.user.create({
+            data: {
+              email: "mock-business@empowermsme.com",
+              passwordHash: "bcrypt-hash-12345",
+              role: "BUSINESS",
+              kycStatus: "VERIFIED"
+            }
+          })
+        }
+        business = await prisma.businessProfile.create({
+          data: {
+            userId: user.id,
+            name: "GreenLeaf Organics",
+            sector: "Agriculture",
+            location: "Pune, MH",
+            udyamId: "UDYAM-MH-12-0048392",
+            employees: 15,
+            businessAge: 3,
+            description: "Organic spices packaging and exports",
+            fundingGoal: 2500000,
+            creditScore: 742,
+          }
+        })
+      }
+    }
+
+    // Find any active loans for this business
+    let loans = await prisma.loan.findMany({
+      where: { businessId: business.id },
+      include: { repayments: true }
+    })
+
+    if (loans.length === 0) {
+      // Create seed loan
+      const baseLoan = await prisma.loan.create({
+        data: {
+          businessId: business.id,
+          amount: 1500000,
+          platformFee: 30000,
+          interestRate: 10.5,
+          tenureMonths: 24,
+          status: "disbursed",
+          bankName: "HDFC Bank",
+          accountNum: "******92842",
+          ifsc: "HDFC0001202",
+        }
+      })
+
+      // Generate 12 repayments (10 paid, 2 upcoming)
+      const repaymentData = []
+      for (let i = 0; i < 12; i++) {
+        const isPaid = i < 10
+        const date = new Date(2025, 5 + i, 25)
+        repaymentData.push({
+          loanId: baseLoan.id,
+          dueDate: date,
+          amountDue: 69200,
+          amountPaid: isPaid ? 69200 : 0,
+          status: isPaid ? "paid" : "pending",
+          paidDate: isPaid ? date : null,
+        })
+      }
+
+      await prisma.repaymentLedger.createMany({
+        data: repaymentData
+      })
+
+      // Reload
+      loans = await prisma.loan.findMany({
+        where: { businessId: business.id },
+        include: { repayments: true }
+      })
+    }
+
+    // Backwards-compatible formatting
+    if (type === "rbf") {
+      const rbfFormat = loans.map(l => {
+        const amountPaid = l.repayments.reduce((s, r) => s + r.amountPaid, 0)
+        const totalRepayable = l.amount * 1.3
+        
+        return {
+          id: `rbf-${l.id}`,
+          businessId: l.businessId,
+          totalFunding: l.amount,
+          capRate: 1.3,
+          totalRepayable,
+          revenueSharePct: 8,
+          amountPaid,
+          remaining: totalRepayable - amountPaid,
+          monthlyData: [
+            { month: "Jan 2026", revenue: 850000, payment: 68000, status: "paid" },
+            { month: "Feb 2026", revenue: 920000, payment: 73600, status: "paid" },
+            { month: "Mar 2026", revenue: 1100000, payment: 88000, status: "paid" },
+            { month: "Apr 2026", revenue: null, payment: null, status: "upcoming" },
+          ]
+        }
+      })
+      return Response.json({ success: true, data: rbfFormat })
+    }
+
+    const emiFormat = loans.map(l => {
+      const amountPaid = l.repayments.reduce((s, r) => s + r.amountPaid, 0)
+      const nextDue = l.repayments.find(r => r.status === "pending")
+      const paidMonths = l.repayments.filter(r => r.status === "paid").length
+      
+      const payments = l.repayments.map((r) => {
+        const dateStr = r.dueDate.toISOString().split("T")[0]
+        const monthsNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+        const monthLabel = `${monthsNames[r.dueDate.getMonth()]} ${r.dueDate.getFullYear()}`
+        
+        return {
+          month: monthLabel,
+          amount: r.amountDue,
+          status: r.status === "paid" ? "paid" : "upcoming",
+          date: dateStr,
+          principal: Math.round(r.amountDue * 0.8),
+          interest: Math.round(r.amountDue * 0.2),
+        }
+      })
+
+      return {
+        id: `r-${l.id}`,
+        loanId: l.id,
+        businessId: l.businessId,
+        totalAmount: l.amount,
+        totalRepayable: l.amount * 1.1,
+        amountPaid,
+        remainingBalance: (l.amount * 1.1) - amountPaid,
+        nextDueDate: nextDue ? nextDue.dueDate.toISOString().split("T")[0] : "Paid Off",
+        nextEmiAmount: nextDue ? nextDue.amountDue : 0,
+        isOverdue: false,
+        overdueAmount: 0,
+        tenure: l.tenureMonths,
+        paidMonths,
+        payments,
+      }
+    })
+
+    return Response.json({ success: true, data: emiFormat })
+  } catch (err) {
+    return Response.json({ success: false, error: err.message }, { status: 500 })
+  }
 }

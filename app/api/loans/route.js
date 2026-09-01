@@ -1,10 +1,5 @@
-// EmpowerMSME — Loans Microservice
-
-const loans = [
-  { id: "l1", businessId: "b1", amount: 1500000, purpose: "Working Capital", status: "disbursed", stage: "Disbursed", submittedAt: "2026-01-05", reviewedAt: "2026-01-12", approvedAt: "2026-01-18", disbursedAt: "2026-01-25", creditScore: 742, riskLevel: "Low", interestRate: 10.5, tenure: 24, emi: 69200, documents: ["business_reg.pdf", "pan_card.pdf", "gst_returns.pdf", "bank_statement.pdf"] },
-  { id: "l2", businessId: "b1", amount: 500000, purpose: "Equipment Purchase", status: "under_review", stage: "Under Review", submittedAt: "2026-03-10", creditScore: 742, riskLevel: "Low", interestRate: 9.5, tenure: 12, documents: ["quotation.pdf", "bank_statement.pdf"] },
-  { id: "l3", businessId: "b2", amount: 2000000, purpose: "Business Expansion", status: "approved", stage: "Approved", submittedAt: "2026-02-01", reviewedAt: "2026-02-10", approvedAt: "2026-02-18", creditScore: 698, riskLevel: "Medium", interestRate: 12.5, tenure: 36, emi: 66700, documents: ["business_plan.pdf", "financials.pdf"] },
-]
+// EmpowerMSME — Loans Database Services
+import prisma from "@/lib/prisma"
 
 const timeline = {
   "submitted": { label: "Submitted", description: "Application received by the system", icon: "upload" },
@@ -19,22 +14,156 @@ export async function GET(request) {
   const businessId = searchParams.get("businessId")
   const id = searchParams.get("id")
 
-  if (id) {
-    const loan = loans.find((l) => l.id === id)
-    if (!loan) return Response.json({ success: false, error: "Loan not found" }, { status: 404 })
-    return Response.json({ success: true, data: { ...loan, timeline } })
-  }
+  try {
+    if (id) {
+      const loan = await prisma.loan.findUnique({
+        where: { id },
+        include: { business: true }
+      })
+      if (!loan) {
+        return Response.json({ success: false, error: "Loan not found" }, { status: 404 })
+      }
+      
+      const statusMap = {
+        pending: "submitted",
+        approved: "approved",
+        disbursed: "disbursed",
+        repaid: "disbursed"
+      }
 
-  let filtered = businessId ? loans.filter((l) => l.businessId === businessId) : loans
-  return Response.json({ success: true, data: filtered, timeline })
+      const mapped = {
+        id: loan.id,
+        businessId: loan.businessId,
+        amount: loan.amount,
+        purpose: "Working Capital",
+        status: statusMap[loan.status] || "submitted",
+        stage: loan.status.charAt(0).toUpperCase() + loan.status.slice(1),
+        submittedAt: loan.createdAt.toISOString().split("T")[0],
+        creditScore: loan.business.creditScore,
+        riskLevel: "Low",
+        interestRate: loan.interestRate,
+        tenure: loan.tenureMonths,
+        emi: Math.round(loan.amount / loan.tenureMonths * 1.05),
+        documents: loan.business.kycDocs,
+      }
+
+      return Response.json({ success: true, data: { ...mapped, timeline } })
+    }
+
+    const where = {}
+    if (businessId) {
+      where.businessId = businessId
+    }
+
+    const data = await prisma.loan.findMany({
+      where,
+      include: { business: true },
+      orderBy: { createdAt: "desc" }
+    })
+
+    const statusMap = {
+      pending: "submitted",
+      approved: "approved",
+      disbursed: "disbursed",
+      repaid: "disbursed"
+    }
+
+    const mappedList = data.map(l => ({
+      id: l.id,
+      businessId: l.businessId,
+      amount: l.amount,
+      purpose: "Working Capital",
+      status: statusMap[l.status] || "submitted",
+      stage: l.status.charAt(0).toUpperCase() + l.status.slice(1),
+      submittedAt: l.createdAt.toISOString().split("T")[0],
+      creditScore: l.business.creditScore,
+      riskLevel: "Low",
+      interestRate: l.interestRate,
+      tenure: l.tenureMonths,
+      emi: Math.round(l.amount / l.tenureMonths * 1.05),
+      documents: l.business.kycDocs,
+    }))
+
+    return Response.json({ success: true, data: mappedList, timeline })
+  } catch (err) {
+    return Response.json({ success: false, error: err.message }, { status: 500 })
+  }
 }
 
 export async function POST(request) {
   try {
     const body = await request.json()
-    const newLoan = { id: `l${Date.now()}`, ...body, status: "submitted", stage: "Submitted", submittedAt: new Date().toISOString().split("T")[0] }
-    loans.push(newLoan)
-    return Response.json({ success: true, data: newLoan }, { status: 201 })
+    
+    // Check or create mock business profile for sandbox backwards-compatibility
+    let business = await prisma.businessProfile.findFirst({
+      where: { id: body.businessId }
+    })
+
+    if (!business) {
+      business = await prisma.businessProfile.findFirst()
+      if (!business) {
+        let user = await prisma.user.findFirst({ where: { role: "BUSINESS" } })
+        if (!user) {
+          user = await prisma.user.create({
+            data: {
+              email: "mock-business@empowermsme.com",
+              passwordHash: "bcrypt-hash-12345",
+              role: "BUSINESS",
+              kycStatus: "VERIFIED"
+            }
+          })
+        }
+        business = await prisma.businessProfile.create({
+          data: {
+            userId: user.id,
+            name: "GreenLeaf Organics",
+            sector: "Agriculture",
+            location: "Maharashtra",
+            udyamId: `UDYAM-MH-${Math.floor(Math.random() * 10000000)}`,
+            employees: 15,
+            businessAge: 3,
+            description: "Mocked business description",
+            fundingGoal: 1000000,
+            creditScore: 700,
+          }
+        })
+      }
+    }
+
+    const newLoan = await prisma.loan.create({
+      data: {
+        businessId: business.id,
+        amount: Number(body.amount),
+        platformFee: Number(body.amount) * 0.02,
+        interestRate: Number(body.interestRate || 10.5),
+        tenureMonths: Number(body.tenure || 12),
+        status: "pending",
+        bankName: body.bankName || "SBI",
+        accountNum: body.accountNum || "1234567890",
+        ifsc: body.ifsc || "SBIN0000001",
+      },
+      include: {
+        business: true
+      }
+    })
+
+    const responseFormat = {
+      id: newLoan.id,
+      businessId: newLoan.businessId,
+      amount: newLoan.amount,
+      purpose: "Working Capital",
+      status: "submitted",
+      stage: "Submitted",
+      submittedAt: newLoan.createdAt.toISOString().split("T")[0],
+      creditScore: newLoan.business.creditScore,
+      riskLevel: "Low",
+      interestRate: newLoan.interestRate,
+      tenure: newLoan.tenureMonths,
+      emi: Math.round(newLoan.amount / newLoan.tenureMonths * 1.05),
+      documents: newLoan.business.kycDocs || [],
+    }
+
+    return Response.json({ success: true, data: responseFormat }, { status: 201 })
   } catch (err) {
     return Response.json({ success: false, error: err.message }, { status: 400 })
   }

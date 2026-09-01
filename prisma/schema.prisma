@@ -1,0 +1,141 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String               @id @default(uuid())
+  email           String               @unique
+  passwordHash    String
+  role            String               // "BUSINESS" | "INVESTOR" | "ADMIN"
+  kycStatus       String               @default("PENDING") // "PENDING" | "VERIFIED" | "REJECTED"
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  businessProfile BusinessProfile?
+  investments     Investment[]
+  auditLogs       AuditLog[]
+  circleMembers   LendingCircleMember[]
+}
+
+model BusinessProfile {
+  id           String     @id @default(uuid())
+  userId       String     @unique
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String
+  sector       String
+  location     String
+  udyamId      String     @unique
+  employees    Int
+  businessAge  Float
+  website      String?
+  description  String
+  fundingGoal  Float
+  kycDocs      String     @default("[]") // Fallback string for SQLite
+  creditScore  Int        @default(300)
+  campaigns    Campaign[]
+  loans        Loan[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Campaign {
+  id            String       @id @default(uuid())
+  businessId    String
+  business      BusinessProfile @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  title         String
+  description   String
+  goal          Float
+  raised        Float        @default(0.0)
+  riskRating    String       @default("Medium") // "Low" | "Medium" | "High"
+  roi           Float
+  repaymentModel String
+  status        String       @default("pending") // "pending" | "active" | "funded" | "expired" | "flagged"
+  submittedDate DateTime     @default(now())
+  investments   Investment[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model Investment {
+  id         String   @id @default(uuid())
+  campaignId String
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  investorId String
+  investor   User     @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  amount     Float
+  status     String   @default("active") // "active" | "completed" | "defaulted"
+  createdAt  DateTime @default(now())
+}
+
+model Loan {
+  id            String            @id @default(uuid())
+  businessId    String
+  business      BusinessProfile   @relation(fields: [businessId], references: [id], onDelete: Cascade)
+  amount        Float
+  platformFee   Float
+  interestRate  Float
+  tenureMonths  Int
+  status        String            @default("pending") // "pending" | "approved" | "disbursed" | "repaid"
+  bankName      String
+  accountNum    String
+  ifsc          String
+  repayments    RepaymentLedger[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+}
+
+model RepaymentLedger {
+  id         String    @id @default(uuid())
+  loanId     String
+  loan       Loan      @relation(fields: [loanId], references: [id], onDelete: Cascade)
+  dueDate    DateTime
+  amountDue  Float
+  amountPaid Float     @default(0.0)
+  status     String    @default("pending") // "pending" | "paid" | "missed"
+  paidDate   DateTime?
+  createdAt  DateTime  @default(now())
+}
+
+model LendingCircle {
+  id                 String                @id @default(uuid())
+  name               String
+  contributionAmount Float
+  frequency          String                @default("monthly")
+  maxMembers         Int
+  currentRound       Int                   @default(1)
+  status             String                @default("active") // "active" | "completed"
+  members            LendingCircleMember[]
+  createdAt          DateTime              @default(now())
+}
+
+model LendingCircleMember {
+  id                 String        @id @default(uuid())
+  circleId           String
+  circle             LendingCircle @relation(fields: [circleId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  contributionStatus String        @default("pending") // "pending" | "paid"
+  trustScore         Int           @default(100)
+  joinedAt           DateTime      @default(now())
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  userEmail String
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  ipAddress String
+  category  String   // "Auth" | "KYC" | "Financial" | "Security"
+  status    String   // "success" | "warning" | "danger" | "info"
+  metadata  String?  // Stringified JSON payload
+  timestamp DateTime @default(now())
+}
+

@@ -1,8 +1,9 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import UserSidebar from "@/components/user-sidebar"
+import { useAuth } from "@/lib/auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -13,17 +14,38 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Label } from "@/components/ui/label"
 import { Search, TrendingUp, Users, DollarSign, Timer, ChevronRight, Filter } from "lucide-react"
 
-const campaigns = [
-  { id: "c1", businessName: "GreenLeaf Organics", sector: "Agriculture", region: "Maharashtra", title: "Organic Spice Processing Expansion", description: "Scaling certified organic spice processing capacity to meet export demand. 5-year track record.", goal: 2500000, raised: 1875000, investors: 34, daysLeft: 18, riskLevel: "Low", expectedROI: 14.5, repaymentModel: "Revenue-Based (8%)", tags: ["organic", "export"] },
-  { id: "c2", businessName: "TechWeave Solutions", sector: "Technology", region: "Karnataka", title: "AI-Powered SME Inventory SaaS", description: "Building AI inventory management SaaS for small retailers. 120 beta users, strong retention.", goal: 5000000, raised: 2200000, investors: 47, daysLeft: 30, riskLevel: "Medium", expectedROI: 18.0, repaymentModel: "Fixed EMI (24 months)", tags: ["saas", "technology"] },
-  { id: "c3", businessName: "CoolChain Logistics", sector: "Logistics", region: "Delhi NCR", title: "Cold Chain Expansion — 3 Cities", description: "Expanding temperature-controlled logistics to Jaipur, Lucknow, Chandigarh. Pharma + dairy.", goal: 8000000, raised: 3200000, investors: 23, daysLeft: 45, riskLevel: "Medium", expectedROI: 16.5, repaymentModel: "Fixed EMI (36 months)", tags: ["logistics"] },
-  { id: "c4", businessName: "Solar Ease Energy", sector: "Energy", region: "Rajasthan", title: "Rooftop Solar Installation for SMEs", description: "Providing solar financing and installation to 200+ small businesses. Government subsidy eligible.", goal: 3000000, raised: 900000, investors: 18, daysLeft: 60, riskLevel: "Low", expectedROI: 12.0, repaymentModel: "Revenue-Based (5%)", tags: ["solar", "green"] },
-]
-
+// Removed mock campaigns array
 const RISK_STYLES = { Low: "bg-emerald-500/10 text-emerald-600", Medium: "bg-amber-500/10 text-amber-600", High: "bg-red-500/10 text-red-600" }
 
-function CampaignCard({ campaign, onInvest }) {
+function CampaignCard({ campaign, onInvest, userId }) {
+  const [amount, setAmount] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [isOpen, setIsOpen] = useState(false)
   const pct = Math.min((campaign.raised / campaign.goal) * 100, 100)
+
+  const handleConfirm = async () => {
+    if (!amount || Number(amount) <= 0) return
+    setLoading(true)
+    try {
+      const res = await fetch("/api/campaigns/invest", {
+        method: "POST",
+        body: JSON.stringify({
+          campaignId: campaign.id,
+          amount: amount,
+          userId: userId || undefined,
+        }),
+        headers: { "Content-Type": "application/json" }
+      })
+      const data = await res.json()
+      if (data.success) {
+        onInvest()
+        setIsOpen(false)
+        setAmount("")
+      }
+    } catch {}
+    setLoading(false)
+  }
+
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} whileHover={{ y: -4 }}
       className="border border-border rounded-xl bg-card overflow-hidden shadow-sm hover:shadow-md transition-all">
@@ -32,7 +54,7 @@ function CampaignCard({ campaign, onInvest }) {
         <div>
           <div className="flex items-start justify-between mb-2">
             <Badge variant="secondary" className="text-xs">{campaign.sector}</Badge>
-            <Badge className={RISK_STYLES[campaign.riskLevel]}>{campaign.riskLevel} Risk</Badge>
+            <Badge className={RISK_STYLES[campaign.riskLevel] || RISK_STYLES.Medium}>{campaign.riskLevel || "Medium"} Risk</Badge>
           </div>
           <h3 className="font-semibold text-foreground">{campaign.title}</h3>
           <p className="text-sm text-muted-foreground mt-1">{campaign.businessName} • {campaign.region}</p>
@@ -59,7 +81,7 @@ function CampaignCard({ campaign, onInvest }) {
             <p className="text-xs text-muted-foreground">Expected ROI</p>
           </div>
           <div className="text-center">
-            <p className="text-sm font-bold">{campaign.investors}</p>
+            <p className="text-sm font-bold">{campaign.investors || 0}</p>
             <p className="text-xs text-muted-foreground">Investors</p>
           </div>
           <div className="text-center">
@@ -70,7 +92,7 @@ function CampaignCard({ campaign, onInvest }) {
 
         <div className="space-y-2">
           <p className="text-xs text-muted-foreground">📋 {campaign.repaymentModel}</p>
-          <Dialog>
+          <Dialog open={isOpen} onOpenChange={setIsOpen}>
             <DialogTrigger asChild>
               <Button className="w-full gap-2 bg-gradient-to-r from-primary to-violet-500 hover:opacity-90">
                 <DollarSign className="h-4 w-4" /> Invest Now
@@ -85,10 +107,13 @@ function CampaignCard({ campaign, onInvest }) {
                   <div className="flex justify-between"><span className="text-muted-foreground">Campaign</span><span className="font-medium">{campaign.title}</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Expected ROI</span><span className="font-medium text-emerald-500">{campaign.expectedROI}% p.a.</span></div>
                   <div className="flex justify-between"><span className="text-muted-foreground">Repayment</span><span className="font-medium">{campaign.repaymentModel}</span></div>
-                  <div className="flex justify-between"><span className="text-muted-foreground">Risk</span><Badge className={RISK_STYLES[campaign.riskLevel]}>{campaign.riskLevel}</Badge></div>
+                  <div className="flex justify-between"><span className="text-muted-foreground">Risk</span><Badge className={RISK_STYLES[campaign.riskLevel] || RISK_STYLES.Medium}>{campaign.riskLevel}</Badge></div>
                 </div>
-                <div className="space-y-2"><Label>Investment Amount (₹)</Label><Input type="number" placeholder="e.g., 50000" /></div>
-                <Button className="w-full">Confirm Investment</Button>
+                <div className="space-y-2">
+                  <Label>Investment Amount (₹)</Label>
+                  <Input type="number" placeholder="e.g., 50000" value={amount} onChange={e => setAmount(e.target.value)} />
+                </div>
+                <Button className="w-full" onClick={handleConfirm} disabled={loading}>{loading ? "Processing Checkout..." : "Confirm Investment"}</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -99,9 +124,25 @@ function CampaignCard({ campaign, onInvest }) {
 }
 
 export default function InvestorCampaignsPage() {
+  const { user } = useAuth()
+  const [campaigns, setCampaigns] = useState([])
   const [search, setSearch] = useState("")
   const [sectorFilter, setSectorFilter] = useState("all")
   const [riskFilter, setRiskFilter] = useState("all")
+
+  const loadCampaigns = async () => {
+    try {
+      const res = await fetch("/api/campaigns")
+      const data = await res.json()
+      if (data.success) {
+        setCampaigns(data.data)
+      }
+    } catch {}
+  }
+
+  useEffect(() => {
+    loadCampaigns()
+  }, [])
 
   const filtered = campaigns.filter(c => {
     const matchSearch = c.title.toLowerCase().includes(search.toLowerCase()) || c.businessName.toLowerCase().includes(search.toLowerCase())
@@ -148,7 +189,7 @@ export default function InvestorCampaignsPage() {
             <p className="text-sm text-muted-foreground">{filtered.length} campaigns found</p>
 
             <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-              {filtered.map(c => <CampaignCard key={c.id} campaign={c} />)}
+              {filtered.map(c => <CampaignCard key={c.id} campaign={c} userId={user?.id} onInvest={loadCampaigns} />)}
             </div>
           </div>
         </main>
@@ -156,3 +197,4 @@ export default function InvestorCampaignsPage() {
     </div>
   )
 }
+

@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 import BusinessSidebar from "@/components/business-sidebar"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,10 +13,10 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Users, Shield, Star, CheckCircle2, Clock, Plus, Trophy, ArrowRight } from "lucide-react"
 
-const circles = [
+const defaultCircles = [
   {
     id: "lc1", name: "TechHub Founders Circle", members: 8, maxMembers: 10,
-    contribution: 10000, totalPool: 100000, currentRound: 5, totalRounds: 10,
+    contribution: 10000, totalPool: 80000, currentRound: 5, totalRounds: 10,
     myTurn: 9, status: "active", category: "Technology",
     members_list: [
       { name: "Priya M.", trustScore: 92, contributed: true, turn: 1, initials: "PM" },
@@ -57,8 +57,60 @@ function TrustScoreBadge({ score }) {
 }
 
 export default function LendingCirclesPage() {
-  const [selectedCircle, setSelectedCircle] = useState(circles[0])
+  const [circles, setCircles] = useState([])
+  const [selectedCircle, setSelectedCircle] = useState(null)
   const [showCreate, setShowCreate] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  // Form states
+  const [form, setForm] = useState({ name: "", maxMembers: "10", contribution: "10000", category: "Mixed" })
+
+  const loadCircles = async () => {
+    try {
+      const res = await fetch("/api/lending-circles")
+      const data = await res.json()
+      if (data.success && data.data.length > 0) {
+        setCircles(data.data)
+        setSelectedCircle(data.data[0])
+      } else {
+        // Fallback
+        setCircles(defaultCircles)
+        setSelectedCircle(defaultCircles[0])
+      }
+    } catch {
+      setCircles(defaultCircles)
+      setSelectedCircle(defaultCircles[0])
+    }
+  }
+
+  useEffect(() => {
+    loadCircles()
+  }, [])
+
+  const handleCreate = async () => {
+    if (!form.name || !form.maxMembers || !form.contribution) return
+    setLoading(true)
+    try {
+      const res = await fetch("/api/lending-circles", {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.name,
+          maxMembers: Number(form.maxMembers),
+          contribution: Number(form.contribution),
+          category: form.category,
+        }),
+        headers: { "Content-Type": "application/json" }
+      })
+      const data = await res.json()
+      if (data.success) {
+        setCircles(prev => [data.data, ...prev])
+        setSelectedCircle(data.data)
+        setShowCreate(false)
+        setForm({ name: "", maxMembers: "10", contribution: "10000", category: "Mixed" })
+      }
+    } catch {}
+    setLoading(false)
+  }
 
   return (
     <div className="flex h-screen bg-background">
@@ -76,13 +128,13 @@ export default function LendingCirclesPage() {
                 <DialogContent className="max-w-md">
                   <DialogHeader><DialogTitle>Create New Lending Circle</DialogTitle></DialogHeader>
                   <div className="space-y-4 pt-2">
-                    <div className="space-y-2"><Label>Circle Name</Label><Input placeholder="e.g., Delhi Retailers Sahayak" /></div>
+                    <div className="space-y-2"><Label>Circle Name</Label><Input placeholder="e.g., Delhi Retailers Sahayak" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} /></div>
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2"><Label>Max Members</Label><Input type="number" placeholder="10" /></div>
-                      <div className="space-y-2"><Label>Monthly Contribution</Label><Input type="number" placeholder="10000" /></div>
+                      <div className="space-y-2"><Label>Max Members</Label><Input type="number" placeholder="10" value={form.maxMembers} onChange={e => setForm(f => ({ ...f, maxMembers: e.target.value }))} /></div>
+                      <div className="space-y-2"><Label>Monthly Contribution</Label><Input type="number" placeholder="10000" value={form.contribution} onChange={e => setForm(f => ({ ...f, contribution: e.target.value }))} /></div>
                     </div>
-                    <div className="space-y-2"><Label>Category</Label><Input placeholder="Technology, Agriculture..." /></div>
-                    <Button className="w-full">Create Circle</Button>
+                    <div className="space-y-2"><Label>Category</Label><Input placeholder="Technology, Agriculture..." value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))} /></div>
+                    <Button className="w-full" onClick={handleCreate} disabled={loading}>{loading ? "Creating Circle..." : "Create Circle"}</Button>
                   </div>
                 </DialogContent>
               </Dialog>
@@ -95,7 +147,7 @@ export default function LendingCirclesPage() {
               {circles.map((circle, i) => (
                 <motion.div key={circle.id} initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: i * 0.1 }}
                   onClick={() => setSelectedCircle(circle)} whileHover={{ y: -4 }}
-                  className={`p-5 border rounded-xl cursor-pointer transition-all ${selectedCircle.id === circle.id ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40"}`}>
+                  className={`p-5 border rounded-xl cursor-pointer transition-all ${selectedCircle?.id === circle.id ? "border-primary bg-primary/5" : "border-border bg-card hover:border-primary/40"}`}>
                   <div className="flex items-start justify-between mb-4">
                     <div>
                       <h3 className="font-semibold text-foreground">{circle.name}</h3>
@@ -132,7 +184,7 @@ export default function LendingCirclesPage() {
               ))}
             </div>
 
-            {selectedCircle && selectedCircle.members_list.length > 0 && (
+            {selectedCircle && selectedCircle.members_list && selectedCircle.members_list.length > 0 && (
               <div className="grid gap-6 lg:grid-cols-2">
                 {/* Member Trust Scores */}
                 <motion.div initial={{ opacity: 0, x: -20 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.3 }}>
@@ -217,3 +269,4 @@ export default function LendingCirclesPage() {
     </div>
   )
 }
+

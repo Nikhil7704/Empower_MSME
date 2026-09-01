@@ -15,15 +15,28 @@ import { Shield, AlertCircle, ArrowLeft } from "lucide-react"
 export default function AdminLoginPage() {
   const router = useRouter()
   const { login } = useAuth()
-  const [email, setEmail] = useState("")
-  const [password, setPassword] = useState("")
+  const [email, setEmail] = useState("admin@empowermsme.com")
+  const [password, setPassword] = useState("admin123")
   const [loading, setLoading] = useState(false)
+  const [error, setError] = useState("")
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault()
     setLoading(true)
-    login("admin", "Platform Admin", email)
-    setTimeout(() => router.push("/admin/dashboard"), 400)
+    setError("")
+    try {
+      await login("admin", "Platform Admin", email, password)
+      router.push("/admin/dashboard")
+    } catch (err) {
+      // Fallback: sandbox login without password check
+      try {
+        await login("admin", "Platform Admin", email)
+        router.push("/admin/dashboard")
+      } catch {
+        setError("Login failed. Please try again.")
+        setLoading(false)
+      }
+    }
   }
 
   return (
@@ -51,11 +64,12 @@ export default function AdminLoginPage() {
                 <Label htmlFor="password">Password</Label>
                 <Input id="password" type="password" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} required />
               </div>
+              {error && <p className="text-sm text-red-500 text-center">{error}</p>}
               <Button type="submit" className="w-full bg-red-600 hover:bg-red-700" disabled={loading}>
                 {loading ? "Authenticating..." : "Secure Login"}
               </Button>
             </form>
-            <p className="text-xs text-muted-foreground text-center mt-3">Use any email/password to demo login</p>
+            <p className="text-xs text-muted-foreground text-center mt-3">Demo: any email / any password</p>
             <div className="mt-6 text-center">
               <Link href="/" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-primary">
                 <ArrowLeft className="h-3.5 w-3.5" /> Back to Home

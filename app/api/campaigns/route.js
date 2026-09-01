@@ -1,11 +1,5 @@
-// EmpowerMSME — Campaign Management Microservice
-
-const campaigns = [
-  { id: "c1", businessId: "b1", businessName: "GreenLeaf Organics", sector: "Agriculture", region: "Maharashtra", title: "Organic Spice Processing Unit Expansion", description: "Scaling certified organic spice processing capacity to meet export demand.", goal: 2500000, raised: 1875000, investors: 34, daysLeft: 18, riskLevel: "Low", expectedROI: 14.5, repaymentModel: "Revenue-Based (8%)", status: "active", createdAt: "2026-02-01", tags: ["organic", "export"] },
-  { id: "c2", businessId: "b2", businessName: "TechWeave Solutions", sector: "Technology", region: "Karnataka", title: "SaaS Platform for SME Inventory Management", description: "Building AI-powered inventory SaaS for small retailers. 120 beta users.", goal: 5000000, raised: 2200000, investors: 47, daysLeft: 30, riskLevel: "Medium", expectedROI: 18.0, repaymentModel: "Fixed EMI (24 months)", status: "active", createdAt: "2026-01-15", tags: ["saas", "technology"] },
-  { id: "c3", businessId: "b3", businessName: "Artisan Textiles Co.", sector: "Manufacturing", region: "Rajasthan", title: "Handloom Modernization & E-commerce Launch", description: "Modernizing 50 artisan looms and launching D2C e-commerce.", goal: 1500000, raised: 1500000, investors: 89, daysLeft: 0, riskLevel: "Low", expectedROI: 12.0, repaymentModel: "Revenue-Based (6%)", status: "funded", createdAt: "2025-12-01", tags: ["textile", "artisan"] },
-  { id: "c4", businessId: "b4", businessName: "CoolChain Logistics", sector: "Logistics", region: "Delhi NCR", title: "Cold Chain Expansion — 3 New Hub Cities", description: "Expanding temperature-controlled logistics to Jaipur, Lucknow, Chandigarh.", goal: 8000000, raised: 3200000, investors: 23, daysLeft: 45, riskLevel: "Medium", expectedROI: 16.5, repaymentModel: "Fixed EMI (36 months)", status: "active", createdAt: "2026-03-01", tags: ["logistics", "cold chain"] },
-]
+// EmpowerMSME — Campaign Management Database Services
+import prisma from "@/lib/prisma"
 
 export async function GET(request) {
   const { searchParams } = new URL(request.url)
@@ -14,21 +8,137 @@ export async function GET(request) {
   const status = searchParams.get("status")
   const businessId = searchParams.get("businessId")
 
-  let filtered = campaigns
-  if (sector && sector !== "all") filtered = filtered.filter((c) => c.sector === sector)
-  if (region && region !== "all") filtered = filtered.filter((c) => c.region === region)
-  if (status) filtered = filtered.filter((c) => c.status === status)
-  if (businessId) filtered = filtered.filter((c) => c.businessId === businessId)
+  try {
+    const where = {}
+    if (status) {
+      where.status = status
+    }
+    if (businessId) {
+      where.businessId = businessId
+    }
 
-  return Response.json({ success: true, data: filtered, total: filtered.length })
+    // Filter via business relation sector or location
+    const businessWhere = {}
+    if (sector && sector !== "all") {
+      businessWhere.sector = sector
+    }
+    if (region && region !== "all") {
+      businessWhere.location = { contains: region, mode: "insensitive" }
+    }
+
+    if (Object.keys(businessWhere).length > 0) {
+      where.business = businessWhere
+    }
+
+    const data = await prisma.campaign.findMany({
+      where,
+      include: {
+        business: true
+      },
+      orderBy: {
+        createdAt: "desc"
+      }
+    })
+
+    const mapped = data.map(c => ({
+      id: c.id,
+      businessId: c.businessId,
+      businessName: c.business.name,
+      sector: c.business.sector,
+      region: c.business.location,
+      title: c.title,
+      description: c.description,
+      goal: c.goal,
+      raised: c.raised,
+      investors: 0,
+      daysLeft: 30,
+      riskLevel: c.riskRating,
+      expectedROI: c.roi,
+      repaymentModel: c.repaymentModel,
+      status: c.status,
+      createdAt: c.createdAt.toISOString().split("T")[0],
+    }))
+
+    return Response.json({ success: true, data: mapped, total: mapped.length })
+  } catch (err) {
+    return Response.json({ success: false, error: err.message }, { status: 500 })
+  }
 }
 
 export async function POST(request) {
   try {
     const body = await request.json()
-    const newCampaign = { id: `c${Date.now()}`, ...body, raised: 0, investors: 0, status: "active", createdAt: new Date().toISOString().split("T")[0] }
-    campaigns.push(newCampaign)
-    return Response.json({ success: true, data: newCampaign }, { status: 201 })
+    
+    // Check or create mock business profile for sandbox backwards-compatibility
+    let business = await prisma.businessProfile.findFirst({
+      where: { name: body.businessName || "GreenLeaf Organics" }
+    })
+
+    if (!business) {
+      let user = await prisma.user.findFirst({ where: { role: "BUSINESS" } })
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            email: "mock-business@empowermsme.com",
+            passwordHash: "bcrypt-hash-12345",
+            role: "BUSINESS",
+            kycStatus: "VERIFIED"
+          }
+        })
+      }
+      
+      business = await prisma.businessProfile.create({
+        data: {
+          userId: user.id,
+          name: body.businessName || "GreenLeaf Organics",
+          sector: body.sector || "Agriculture",
+          location: body.region || "Maharashtra",
+          udyamId: body.udyamId || `UDYAM-MH-${Math.floor(Math.random() * 10000000)}`,
+          employees: 15,
+          businessAge: 3,
+          description: body.description || "Mocked business description",
+          fundingGoal: Number(body.goal || 1000000),
+          creditScore: 700,
+        }
+      })
+    }
+
+    const newCampaign = await prisma.campaign.create({
+      data: {
+        businessId: business.id,
+        title: body.title,
+        description: body.description,
+        goal: Number(body.goal),
+        roi: Number(body.expectedROI || body.roi || 12.5),
+        repaymentModel: body.repaymentModel || "Fixed EMI",
+        status: "active",
+        riskRating: body.riskLevel || "Medium",
+      },
+      include: {
+        business: true
+      }
+    })
+
+    const responseFormat = {
+      id: newCampaign.id,
+      businessId: newCampaign.businessId,
+      businessName: newCampaign.business.name,
+      sector: newCampaign.business.sector,
+      region: newCampaign.business.location,
+      title: newCampaign.title,
+      description: newCampaign.description,
+      goal: newCampaign.goal,
+      raised: newCampaign.raised,
+      investors: 0,
+      daysLeft: 30,
+      riskLevel: newCampaign.riskRating,
+      expectedROI: newCampaign.roi,
+      repaymentModel: newCampaign.repaymentModel,
+      status: newCampaign.status,
+      createdAt: newCampaign.createdAt.toISOString().split("T")[0],
+    }
+
+    return Response.json({ success: true, data: responseFormat }, { status: 201 })
   } catch (err) {
     return Response.json({ success: false, error: err.message }, { status: 400 })
   }
